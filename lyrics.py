@@ -2,8 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch as nn
 import pandas as pd
-from transformers import BertTokenizer, BertModel
+import transformers
+from transformers import BertTokenizer, BertForSequenceClassification, TrainingArguments, Trainer
+import sklearn
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+
 
 #Importing the data and cleaning it
 df = pd.read_csv('./spotify_songs.csv')
@@ -11,23 +15,36 @@ df = df.drop(df[df["language"]!="en"].index)
 songs = df[['track_name','lyrics','playlist_genre']]
 songs = songs.dropna()
 songs = songs.reset_index(drop=True)
+le = LabelEncoder()
+le.fit(df["playlist_genre"])
+songs["genre_num"] = le.transform(songs["playlist_genre"])
 
-#Imports in the BERT model
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertModel.from_pretrained("bert-base-uncased")
+num_genres = songs['playlist_genre'].nunique()
+tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased')
+model = transformers.BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels= num_genres)
 
-lyrics_tokenized = songs['lyrics'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
+tokenized = tokenizer(songs["lyrics"][0:20].tolist(), padding=True, truncation=True, return_tensors="pt")
+labels = nn.tensor(songs["genre_num"][0:20].tolist())
+data_train = tokenized
+data_train["labels"] = labels
 
-lyrics_tensors = []
-for i in lyrics_tokenized:
-    lyrics_tensors.append(nn.tensor(i))
+tokenized = tokenizer(songs["lyrics"][21:30].tolist(), padding=True, truncation=True, return_tensors="pt")
+labels = nn.tensor(songs["genre_num"][21:30].tolist())
+data_test = tokenized
+data_test["labels"] = labels
 
-lyrics_tensors_padded = nn.pad_sequence(lyrics_tensors, batch_first=True, padding_value=0, max_len=512)
+def compute_metrics(pred):
+    labels = pred.label_ids
+    preds = pred.predictions.argmax(-1)
+    f1 = sklearn.metrics.f1_score(labels, preds)
+    return {
+      'f1': f1,
+  }
 
-with nn.no_grad():
-    embeddings = model(lyrics_tensors_padded)
+training_args = TrainingArguments(output_dir='./results',num_train_epochs=3)
+trainer = Trainer(model=model, args=training_args, train_dataset=data_train, eval_dataset=data_test, compute_metrics = compute_metrics)
+#TODO: train not working
+trainer.train()
+print(trainer.eval())
 
-#class Deep_Learning_Lyrics(nn.Module):
-#    def __init__():
-#
-#   def train
+#predicted_genre_names = le.inverse_transform(predicted_labels)
