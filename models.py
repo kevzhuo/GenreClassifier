@@ -28,8 +28,8 @@ def multimodal(test_set):
 def main():
     #For a baseline, we are predicting "pop" for every genre since it occurs the most
     pop = [2] * len(preprocess.test_label)
-    print("Baseline: " + metric(pop, preprocess.test_label))
-    print("Lyric Only: " + metric(lyric_genre(preprocess.lyric_test), preprocess.test_label))
+    print("Baseline: " + str(metric(pop, preprocess.test_label)))
+    #print("Lyric Only: " + metric(lyric_genre(preprocess.lyric_test), preprocess.test_label))
 
 if __name__ == '__main__':
     main()
