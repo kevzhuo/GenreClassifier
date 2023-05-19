@@ -1,55 +1,57 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import torch as nn
+import torch
+from torch import nn
 import pandas as pd
 import transformers
-from transformers import BertTokenizer, BertForSequenceClassification, TrainingArguments, Trainer, DataCollatorWithPadding
+from transformers import BertTokenizer, BertModel
 import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-
-#Run BERT on GPU since its faster than CPU
-device = nn.device('cuda' if nn.cuda.is_available() else 'cpu')
+import pickle
 
 #Importing the data and cleaning it
 df = pd.read_csv('./spotify_songs.csv')
+df = df.sample(n=1000, random_state = 10)
 df = df.drop(df[df["language"]!="en"].index)
-songs = df[['lyrics','playlist_genre']]
+songs = df[['lyrics','playlist_genre', 'acousticness', 'tempo', 'valence', 'danceability', 'energy']]
 songs = songs.dropna()
 songs = songs.reset_index(drop=True)
 num_genres = songs['playlist_genre'].nunique()
 
+  
 #Converts the musical genre strings into numerical values
 le = LabelEncoder()
 le.fit(df["playlist_genre"])
 songs["genre_num"] = le.transform(songs["playlist_genre"])
 
-num_genres = songs['playlist_genre'].nunique()
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-#Splitting the dataset into train, validation, test
-songs_train, songs_val, train_label, val_label = train_test_split(songs['lyrics'], songs['genre_num'], test_size=0.001, random_state=5)
-songs_val, songs_test, val_label, test_label = train_test_split(songs_val, val_label, test_size=0.5, random_state=5)
+tokenizer = transformers.BertTokenizer.from_pretrained("distilbert-base-uncased")
+model = transformers.BertModel.from_pretrained("distilbert-base-uncased").to(device)
 
-tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased')
-model = transformers.BertForSequenceClassification.from_pretrained('bert-base-uncased')
+songs_train, songs_test = train_test_split(songs, test_size=0.3, random_state=5)
 
-def preprocess_func(data):
-    return tokenizer.batch_encode_plus(data, truncation=True, padding = True, return_tensors="pt")
+tokenized_train = tokenizer(songs_train["lyrics"].values.tolist(), max_length = 100, padding = True, truncation = True, return_tensors="pt")
+tokenized_test = tokenizer(songs_test["lyrics"].values.tolist() , max_length = 100, padding = True, truncation = True,  return_tensors="pt")
 
-#Tokenizing the lyrics
-#lyrics_train = preprocess_func(songs_train.tolist())
-lyrics_dev = preprocess_func(songs_val.tolist())
-#lyrics_test = preprocess_func(songs_test.tolist())
-lyrics_dev = {k:nn.tensor(v).to(device) for k,v in lyrics_dev.items()}
+#move to GPU since it is faster
+tokenized_train = {k:torch.tensor(v).to(device) for k,v in tokenized_train.items()}
+tokenized_test = {k:torch.tensor(v).to(device) for k,v in tokenized_test.items()}
 
-with nn.no_grad():
-#    hidden_train = model(**lyrics_train)
-    hidden_val = model(**lyrics_dev)
+#Gets the embeddings
+with torch.no_grad():
+  hidden_train = model(**tokenized_train) 
+  hidden_test = model(**tokenized_test)
 
-#lyrics_train_embedd = hidden_train.last_hidden_state[:,0,:]
-lyrics_dev_embedd = hidden_val.last_hidden_state[:,0,:]
+cls_train = hidden_train.last_hidden_state[:,0,:]
+cls_test = hidden_test.last_hidden_state[:,0,:]
 
-#lyrics_train["label"] = train_label
-#lyrics_val["label"] = val_label
-#lyrics_test["label"] = nn.tensor(test_label.tolist())
+lyric_train_embedding = cls_train.to("cpu")
+lyric_test_embedding = cls_test.to("cpu")
 
+print(lyric_test_embedding.size(), torch.unsqueeze(torch.Tensor(songs_train['acousticness'].tolist()),1).size())
+
+#Concatenating the acoustic vectors onto the lyric BERT embedding
+multimodal_train_embedding = torch.cat((torch.unsqueeze(torch.Tensor(songs_train['acousticness'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['energy'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['tempo'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['valence'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['danceability'].tolist()),1), lyric_train_embedding),-1)
+multimodal_test_embedding = torch.cat((torch.unsqueeze(torch.Tensor(songs_test['acousticness'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['energy'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['tempo'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['valence'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['danceability'].tolist()),1), lyric_test_embedding), -1)
