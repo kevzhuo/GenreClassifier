@@ -8,11 +8,10 @@ from transformers import BertTokenizer, BertModel
 import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-import pickle
 
 #Importing the data and cleaning it
 df = pd.read_csv('./spotify_songs.csv')
-df = df.sample(n=1000, random_state = 10)
+df = df.sample(n=100, random_state = 50)
 df = df.drop(df[df["language"]!="en"].index)
 songs = df[['lyrics','playlist_genre', 'acousticness', 'tempo', 'valence', 'danceability', 'energy']]
 songs = songs.dropna()
@@ -50,7 +49,8 @@ cls_test = hidden_test.last_hidden_state[:,0,:]
 lyric_train_embedding = cls_train.to("cpu")
 lyric_test_embedding = cls_test.to("cpu")
 
-print(lyric_test_embedding.size(), torch.unsqueeze(torch.Tensor(songs_train['acousticness'].tolist()),1).size())
+audio_train_embedding = torch.cat((torch.unsqueeze(torch.Tensor(songs_train['acousticness'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['energy'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['tempo'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['valence'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['danceability'].tolist()),1)), -1)
+audio_test_embedding = torch.cat((torch.unsqueeze(torch.Tensor(songs_test['acousticness'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['energy'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['tempo'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['valence'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_test['danceability'].tolist()),1)), -1)
 
 #Concatenating the acoustic vectors onto the lyric BERT embedding
 multimodal_train_embedding = torch.cat((torch.unsqueeze(torch.Tensor(songs_train['acousticness'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['energy'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['tempo'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['valence'].tolist()),1), torch.unsqueeze(torch.Tensor(songs_train['danceability'].tolist()),1), lyric_train_embedding),-1)
